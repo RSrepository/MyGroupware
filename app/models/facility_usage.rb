@@ -1,2 +1,0 @@
-class FacilityUsage < ApplicationRecord
-end
