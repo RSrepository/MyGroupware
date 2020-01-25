@@ -7,72 +7,95 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.builders.WebSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
-import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
+import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+
+import rsrepo.groupware.mygroupware.simpleresponse.*;
 
 // セキュリティ設定用クラス
 @EnableWebSecurity
 @Configuration
 public class SecurityConfig extends WebSecurityConfigurerAdapter {
 
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
-
     // データソース
     @Autowired
     private DataSource dataSource;
-    // ユーザーIDとパスワードを取得するSQL文
-    private static final String USER_SQL = "SELECT user_id, password, true FROM m_user WHERE user_id = ?";
-    private static final String ROLE_SQL = "SELECT user_id, role FROM m_user WHERE user_id = ?";
-
-    @Override
-    public void configure(WebSecurity web) throws Exception {
-        // 静的リソースを除外
-        // 静的リソースへのアクセスには、セキュリティを適用しない
-        web.ignoring().antMatchers("/webjars/**", "/css/**");
-    }
+    // ユーザー名とパスワードを取得するSQL文
+    private static final String USER_SQL = "SELECT name, password, true FROM user WHERE name = ?";
+    private static final String ROLE_SQL = "SELECT name, role FROM user WHERE name = ?";
 
     @Override
     protected void configure(HttpSecurity http) throws Exception {
-        // 直リンクの禁止
-        // ログイン不要ページの設定
-        http.authorizeRequests().antMatchers("/webjars/**").permitAll() // webjarsへアクセス許可
-                .antMatchers("/css/**").permitAll() // cssへアクセス許可
-                .antMatchers("/login").permitAll() // ログインページは直リンクOK
-                .antMatchers("/signup").permitAll() // ユーザー登録画面は直リンクOK
-                .antMatchers("/rest/**").permitAll().antMatchers("/admin").hasAuthority("ROLE_ADMIN").anyRequest()
-                .authenticated(); // それ以外は直リンク禁止
-
-        // ログイン処理
-        http.formLogin().loginProcessingUrl("/login") // ログイン処理のパス
-                .loginPage("/login") // ログインページの指定
-                .failureUrl("/login") // ログイン失敗時の遷移先
-                .usernameParameter("userId") // ログインページのユーザーID
-                .passwordParameter("password") // ログインページのパスワード
-                .defaultSuccessUrl("/home", true); // ログイン成功後の遷移先
-
-        // ログアウト処理
-        http.logout().logoutRequestMatcher(new AntPathRequestMatcher("/logout")).logoutUrl("/logout")
-                .logoutSuccessUrl("/login");
-
-        // CSRFを無効にするURLを設定
-        RequestMatcher csrfMatcher = new RestMatcher("/rest/**");
-
-        // RESTのみCSRF対策を無効に設定
-        http.csrf().requireCsrfProtectionMatcher(csrfMatcher);
+        http
+                // APIの認可の設定
+                .authorizeRequests().mvcMatchers("/login", "/user/insert").permitAll().mvcMatchers("/admin/**").hasRole("ADMIN")
+                .anyRequest().authenticated().and()
+                // 認証、認可の例外処理
+                .exceptionHandling().authenticationEntryPoint(authenticationEntryPoint())
+                .accessDeniedHandler(accessDeniedHandler()).and()
+                // 認証と成功・失敗時の処理
+                .formLogin().loginProcessingUrl("/login").permitAll().usernameParameter("name")
+                .passwordParameter("password").successHandler(authenticationSuccessHandler())
+                .failureHandler(authenticationFailureHandler()).and()
+                // ログアウト時の処理
+                .logout().logoutUrl("/logout").invalidateHttpSession(true).deleteCookies("JSESSIONID")
+                .logoutSuccessHandler(logoutSuccessHandler()).and()
+                // CSRF
+                .csrf()
+                // .ignoringAntMatchers("/login")
+                .csrfTokenRepository(new CookieCsrfTokenRepository());
     }
+
+    // @Autowired
+    // public void configureGlobal(AuthenticationManagerBuilder auth,
+    // @Qualifier("simpleUserDetailsService") UserDetailsService userDetailsService,
+    // PasswordEncoder passwordEncoder) throws Exception {
+    // auth.eraseCredentials(true).userDetailsService(userDetailsService).passwordEncoder(passwordEncoder);
+    // }
 
     @Override
     protected void configure(AuthenticationManagerBuilder auth) throws Exception {
         // ログイン処理時のユーザー情報を、DBから取得する
         auth.jdbcAuthentication().dataSource(dataSource).usersByUsernameQuery(USER_SQL)
                 .authoritiesByUsernameQuery(ROLE_SQL).passwordEncoder(passwordEncoder());
+    }
+
+    @Bean
+    PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    // 未認証のユーザーが認証の必要なAPIにアクセスしたとき
+    AuthenticationEntryPoint authenticationEntryPoint() {
+        return new SimpleAuthenticationEntryPoint();
+    }
+
+    // ユーザーは認証済みだが未認可のリソースへアクセスしたとき
+    AccessDeniedHandler accessDeniedHandler() {
+        return new SimpleAccessDeniedHandler();
+    }
+
+    // 認証が成功した時
+    AuthenticationSuccessHandler authenticationSuccessHandler() {
+        return new SimpleAuthenticationSuccessHandler();
+    }
+
+    // 認証が失敗した時
+    AuthenticationFailureHandler authenticationFailureHandler() {
+        return new SimpleAuthenticationFailureHandler();
+    }
+
+    // ログアウトが正常終了した時
+    LogoutSuccessHandler logoutSuccessHandler() {
+        return new HttpStatusReturningLogoutSuccessHandler();
     }
 }

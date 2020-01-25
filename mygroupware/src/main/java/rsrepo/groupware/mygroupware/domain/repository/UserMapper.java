@@ -17,8 +17,8 @@ public interface UserMapper {
     public boolean insert(User user);
 
     // 1件検索用メソッド
-    @Select("SELECT id, name, password, role, updated_at FROM users WHERE name = #{name} AND password = #{password}")
-    public User selectOne(String userId);
+    @Select("SELECT id, name, password, role, updated_at FROM users WHERE id = #{id}")
+    public User selectOne(String id);
 
     // 全件検索用メソッド
     @Select("SELECT id, name, password, role, updated_at FROM users")
@@ -30,5 +30,5 @@ public interface UserMapper {
 
     // 1件削除用メソッド
     @Delete("DELETE FROM users WHERE id = #{id}")
-    public boolean deleteOne(String userId);
+    public boolean deleteOne(String id);
 }
